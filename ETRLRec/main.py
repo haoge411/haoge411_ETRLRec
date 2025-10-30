@@ -38,7 +38,7 @@ if __name__ == '__main__':
     parser.add_argument('--temperature', default=1.3, type=float)
     parser.add_argument('--LLM_key', default="", type=str)
     parser.add_argument('--LLM_url', default="", type=str)
-    parser.add_argument('--LLM_version', default="deepseek-reasoner", type=str)
+    parser.add_argument('--LLM_version', default="", type=str)
     parser.add_argument('--constructed_temporal_reasoning_path', default="ETRLRec/Stage1_Temporal_Reasoning_Construction/Constructed_Temporal_Reasoning.csv", type=str)
 
     
