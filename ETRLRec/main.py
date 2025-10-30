@@ -36,8 +36,8 @@ if __name__ == '__main__':
     parser.add_argument('--candidate_num', default=25, type=int)
     parser.add_argument('--thread_num', default=1, type=int)
     parser.add_argument('--temperature', default=1.3, type=float)
-    parser.add_argument('--LLM_key', default="sk-de269bdee04943c999a65fa4b90029cd", type=str)
-    parser.add_argument('--LLM_url', default="https://api.deepseek.com", type=str)
+    parser.add_argument('--LLM_key', default="", type=str)
+    parser.add_argument('--LLM_url', default="", type=str)
     parser.add_argument('--LLM_version', default="deepseek-reasoner", type=str)
     parser.add_argument('--constructed_temporal_reasoning_path', default="ETRLRec/Stage1_Temporal_Reasoning_Construction/Constructed_Temporal_Reasoning.csv", type=str)
 
