@@ -3,7 +3,8 @@ from argparse import ArgumentParser
 import torch
 import os
 from Stage1_Temporal_Reasoning_Construction.Construct_Temporal_Reasoning.input_LLM import input_LLM
-
+from Stage2_Temporal_Reasoning_Distillation.Offline_Knowledge_Distillation import distill_temporal_reasoning
+from Stage3_Reinforcement_Learning_Enhancement.Reinforcement_Learning_Training import reinforcement_learning_enhancement
 
 def main(args):
     
@@ -13,8 +14,10 @@ def main(args):
     #     os.makedirs(args.second_model_path)
 
     if args.mode == 'train':
-        path = input_LLM(args)
-        print("the constructed temporal reasonings are saved in: ", path)
+        constructed_temporal_reasoning_path = input_LLM(args)
+        print("the constructed temporal reasonings are saved in: ", str(constructed_temporal_reasoning_path))
+        distilled_smaller_scale_llm_path, train_dataset, test_dataset, eval_dataset, prompt_to_reference, eval_input_prompts_for_ref = distill_temporal_reasoning(args,str(constructed_temporal_reasoning_path))
+        reinforcement_learning_enhancement(args, distilled_smaller_scale_llm_path, train_dataset, eval_dataset, prompt_to_reference, eval_input_prompts_for_ref)
     # else:
     #     test(args)
 
@@ -36,13 +39,49 @@ if __name__ == '__main__':
     parser.add_argument('--candidate_num', default=25, type=int)
     parser.add_argument('--thread_num', default=1, type=int)
     parser.add_argument('--temperature', default=1.3, type=float)
-    parser.add_argument('--LLM_key', default="", type=str)
-    parser.add_argument('--LLM_url', default="", type=str)
-    parser.add_argument('--LLM_version', default="", type=str)
+    parser.add_argument('--LLM_key', default="sk-de269bdee04943c999a65fa4b90029cd", type=str)
+    parser.add_argument('--LLM_url', default="https://api.deepseek.com", type=str)
+    parser.add_argument('--LLM_version', default="deepseek-reasoner", type=str)
     parser.add_argument('--constructed_temporal_reasoning_path', default="ETRLRec/Stage1_Temporal_Reasoning_Construction/Constructed_Temporal_Reasoning.csv", type=str)
-
     
+    
+    parser.add_argument('--smaller_llm_int8_threshold', default=6.0, type=float)
+    parser.add_argument('--candidate_num', default=25, type=int)
+    parser.add_argument('--use_int8', default=True, type=bool)
+    parser.add_argument('--device', default='auto', type=str)
+    parser.add_argument('--smaller_llm_ori_path', default='your_smaller_llm_ori_path', type=str)
+    parser.add_argument('--padding_side', default='left', type=str)
+    parser.add_argument('--saved_distilled_smaller_llm_path', default='your_distilled_smaller_llm_path', type=str)
+    parser.add_argument('--saved_best_distilled_smaller_llm_path', default="best_llm", type=str)
+    parser.add_argument('--prompt_max_length', default=1300, type=int)
+    parser.add_argument('--output_token_max_length', default=800, type=int)
+    parser.add_argument('--if_output_do_sample', default=True, type=bool)
+    parser.add_argument('--smaller_llm_temperature', default=0.7, type=float)
+    parser.add_argument('--smaller_llm_top_p', default=0.9, type=float)
+    parser.add_argument('--per_device_eval_distill_batch_size', default=10, type=int)
+    parser.add_argument('--per_device_distill_batch_size', default=30, type=int)#args.
+    parser.add_argument('--distill_gradient_accumulation_steps', default=30, type=int)
+    parser.add_argument('--distill_learning_rate', default=1e-4, type=float)
+    parser.add_argument('--distill_weight_decay', default=1e-2, type=float)
+    parser.add_argument('--distill_num_epochs', default=100, type=int) #
+    parser.add_argument('--distill_gradient_checkpointing', default=True, type=bool)
+    parser.add_argument('--distill_distill_logging_steps', default=1, type=int)
+    parser.add_argument('--distill_distill_logging_steps', default=1, type=int)
+    parser.add_argument('--distill_save_strategy', default="no", type=str)
+    parser.add_argument('--distill_save_steps', default=15, type=int)
+    parser.add_argument('--distill_save_total_limit', default=6, type=int)
+    parser.add_argument('--distill_if_use_bf16', default=True, type=bool)
+    parser.add_argument('--distill_ddp_find_unused_parameters', default=True, type=bool)
+    parser.add_argument('--distill_remove_unused_columns', default=False, type=bool)
+    parser.add_argument('--distill_optimizer', default="adamw_torch_fused", type=str)
+    parser.add_argument('--distill_eval_steps', default=60, type=int)
+    parser.add_argument('--distill_neftune_noise_alpha', default=5.0, type=float)
+    parser.add_argument('--distill_include_tokens_per_second', default=True, type=bool)
+    parser.add_argument('--distilled_smaller_llm_path', default="./distilled_smaller_scale_llm_path", type=str)
 
+    parser.add_argument('--rf_smaller_llm_path', default="./rl_smaller_scale_llm_path", type=str)
+    parser.add_argument('--trained_CRM_path', default="", type=str)
+    
     '''
     parser.add_argument('--device', default='cuda', choices=['cuda', 'cpu'], type=str)
     parser.add_argument('--parallelize', default=True, type=bool)
