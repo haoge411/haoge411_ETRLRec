@@ -11,29 +11,27 @@ To address aforementioned issues, we propose a novel framework, Enhancing Tempor
 
 
 ## Paper
-DELRec: Distilling Sequential Pattern to Enhance LLMs-based Sequential Recommendation ([ETRLRec__Paper (1).pdf](https://github.com/user-attachments/files/23341505/ETRLRec__Paper.1.pdf)
-)
+DELRec: Distilling Sequential Pattern to Enhance LLMs-based Sequential Recommendation ([_ETRLRec_.pdf](https://github.com/user-attachments/files/23341528/_ETRLRec_.pdf))
+
 
 
 ## Preparation
 1. **Prepare the environment:**
    To install the dependencies for this project, run the following command:
     ```bash
-    git clone https://github.com/haoge6660101/DELRec_hao.git
-    cd DELRec
+    git clone https://github.com/haoge411/haoge411_ETRLRec.git
+    cd ETRLRec
     pip install -r requirements.txt
     ```
 
-2. **Prepare the pre-trained Huggingface model of Flan-T5-XL:**
+2. **Prepare the pre-trained Huggingface model of Llama-3.2-3B:**
    
-    Flan-T5-XL: https://huggingface.co/google/flan-t5-xl
+    Llama-3.2-3B: https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct
 
 3. **Download the datasets:**
 
     MovieLens-100K: https://grouplens.org/datasets/movielens/100k/
    
-    Steam: https://huggingface.co/datasets/joyliao7777/LLaRA/tree/main/steam     
+    Video Games: https://amazon-reviews-2023.github.io/
 
-    Beauty: https://github.com/RUCAIBox/RecSysDatasets
-
-    Home and Kitchen: https://github.com/RUCAIBox/RecSysDatasets
+    Sports & Outdoors: https://amazon-reviews-2023.github.io/
