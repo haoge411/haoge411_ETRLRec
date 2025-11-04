@@ -11,7 +11,7 @@ To address aforementioned issues, we propose a novel framework, Enhancing Tempor
 
 
 ## Paper
-DELRec: Distilling Sequential Pattern to Enhance LLMs-based Sequential Recommendation ([_ETRLRec_.pdf](https://github.com/user-attachments/files/23341528/_ETRLRec_.pdf))
+ETRLRec: Enhancing Temporal Reasoning by Reinforcement Learning for LLM-based Sequential Recommendation ([_ETRLRec_.pdf](https://github.com/user-attachments/files/23341528/_ETRLRec_.pdf))
 
 
 
