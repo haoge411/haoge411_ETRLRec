@@ -6,6 +6,7 @@ from datasets import load_dataset
 from bigmodelvis import Visualization
 import re
 import os
+import numpy as np
 import sys
 import json
 import torch
@@ -40,6 +41,8 @@ from transformers import (
     DataCollatorForLanguageModeling, 
     pipeline,
 )
+
+from ..Stage3_Reinforcement_Learning_Enhancement.Reinforcement_Learning_Training import _load_distilled_smaller_scale_llm
 
 set_seed(42)
 
@@ -341,22 +344,22 @@ def distill_temporal_reasoning (args, constructed_temporal_reasoning_path):
         }
     
     #Loading smaller-scale LLM
+    t_data = train_dataset
+    te_data = test_dataset
+    e_data = eval_dataset
 
     train_dataset = train_dataset.map(
         preprocess_function,
-        batched = True,
         remove_columns=train_dataset.column_names
     )
 
     test_dataset = test_dataset.map(
         preprocess_function,
-        batched = True,
         remove_columns=test_dataset.column_names
     )
 
     eval_dataset = eval_dataset.map(
         preprocess_function,
-        batched = True,
         remove_columns=eval_dataset.column_names
     )
 
@@ -420,4 +423,86 @@ def distill_temporal_reasoning (args, constructed_temporal_reasoning_path):
     print(f"The distilled smaller-scale LLM has been saved to {args.distilled_smaller_llm_path}")
 
 
-    return args.distilled_smaller_llm_path, train_dataset, test_dataset, eval_dataset, prompt_to_reference, eval_input_prompts_for_ref
+    return args.distilled_smaller_llm_path, t_data, te_data, e_data, prompt_to_reference, eval_input_prompts_for_ref, test_input_prompts_for_ref
+
+def test_ETRLRec(args, rl_smaller_llm_out_path, test_dataset, test_prompt, prompt_to_reference):
+
+    smaller_llm, tokenizer = _load_distilled_smaller_scale_llm(args, rl_smaller_llm_out_path)
+    smaller_llm.eval()  
+    total_correct = 0
+    ht1 = 0.0000
+    ht10 = 0.0000
+    nd10 = 0.0000
+    num_samples = min(len(test_dataset), args.per_device_test_size)  
+    
+    # Create a text generation pipeline
+    text_generator = pipeline(
+        "text-generation",
+        model=smaller_llm,
+        tokenizer=tokenizer,
+        #device=model.device.index if torch.cuda.is_available() else -1,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+        batch_size=args.per_device_test_batch_size,
+        # Add generation control parameters
+        early_stopping=True,
+        no_repeat_ngram_size=3,
+        repetition_penalty=1.2,
+        num_beams=3,
+        length_penalty=0.9,
+        eos_token_id=tokenizer.eos_token_id,
+        pad_token_id=tokenizer.pad_token_id
+    )
+
+    for i in range(0, num_samples):
+        
+        batch_prompts = test_prompt[i]
+        ref_data = prompt_to_reference.get(batch_prompts, {"answer": ""})
+        ref_answer = str(ref_data["answer"])
+        ref_answer_reasoning = str(ref_data["reasoning"])
+        is_correct = False
+        times = 0
+        while True:
+            times += 1
+            full_prompts = [f"User: {batch_prompts}\nAssistant:"]
+            
+            # Generate text using pipeline
+            with torch.no_grad():
+                outputs = text_generator(
+                    full_prompts,
+                    max_new_tokens=args.output_token_max_length,
+                    do_sample=args.if_output_do_sample,  
+                    temperature=args.smaller_llm_temperature,  
+                    top_p=args.smaller_llm_top_p,
+                    return_full_text=False
+                )
+            
+            # Extract the generated text
+            completion = [output[0]['generated_text'] for output in outputs]
+            
+            # Extract the answer from the generated text
+            answer_match = re.search(r"<answer>(.*?)</answer>", completion, re.DOTALL)
+            
+            gen_answer = answer_match.group(1).strip() if answer_match else ""
+            
+            is_correct = gen_answer == ref_answer
+            total_correct += 1 if is_correct else 0
+            
+            if is_correct == False:
+                # If the answer is incorrect, remove the candidate item containing the answer from the prompt
+                re.sub(rf'\n{re.escape(gen_answer)}.*?\n', '\n', batch_prompts)
+            
+            if is_correct == True:
+                if times <= 1:
+                    ht1 += 1
+                if times <= 10:
+                    ht10 += 1
+                    nd10 += 1 / np.log2(times + 2)
+                break
+            
+            if is_correct == False and times > 10:
+                break
+            
+    del text_generator
+    torch.cuda.empty_cache()
+    
+    return ht1, ht10, nd10

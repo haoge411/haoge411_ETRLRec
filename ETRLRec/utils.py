@@ -69,7 +69,7 @@ def _evaluate_(args, smaller_llm, tokenizer, eval_dataset, eval_prompts, config,
     """Evaluate the model performance on the validation set"""
     smaller_llm.eval()  
     total_correct = 0
-    num_samples = min(len(eval_dataset), config["num_eval_samples"])  
+    num_samples = min(len(eval_dataset), 1000)  
     
     
     # Create a text generation pipeline
@@ -92,7 +92,7 @@ def _evaluate_(args, smaller_llm, tokenizer, eval_dataset, eval_prompts, config,
 
     for i in range(0, num_samples, config["eval_batch_size"]):
         
-        batch_prompts = eval_prompts[i:i+config["eval_batch_size"]]
+        batch_prompts = eval_prompts[i:args.per_device_eval_distill_batch_size]
         
         full_prompts = [f"User: {prompt}\nAssistant:" for prompt in batch_prompts]
         
@@ -233,3 +233,28 @@ class ValidationCallback(TrainerCallback):
         gc.collect()
         self.model.train()
 
+class GradientSafeMemoryCleanCallback(TrainerCallback):
+    def __init__(self, gradient_accumulation_steps):
+        self.gradient_accumulation_steps = gradient_accumulation_steps
+        self.accumulation_step = 0
+    
+    def on_step_begin(self, args, state, control, **kwargs):
+        
+        self.accumulation_step = (self.accumulation_step + 1) % self.gradient_accumulation_steps
+    
+    def on_step_end(self, args, state, control, **kwargs):
+        
+        if self.accumulation_step == 0:
+            try:
+                
+                torch.cuda.synchronize()
+                #get_accelerator().empty_cache()
+                torch.cuda.empty_cache()
+                gc.collect()
+                
+                
+                if torch.cuda.is_available():
+                    current_mem = torch.cuda.memory_allocated() / 1e6
+                    print(f"Global step {state.global_step} | Current video memory: {current_mem:.2f} MB")
+            except Exception as e:
+                print(f"Failed to clear video memory: {str(e)}")

@@ -5,8 +5,8 @@ from accelerate.utils import broadcast_object_list, gather, gather_object, is_pe
 import concurrent.futures
 import re
 from datetime import datetime
-from SASRec_pytorch.python.main import SASRec_rew 
-from Deepseek_inf import deepseek_inf 
+from .Conventional_SR_Model_SASRec.main import Trained_CRM
+from .Scoring_LLM import Scoring_LLM 
 from collections import defaultdict
 from transformers import TrainerCallback
 import torch
@@ -14,6 +14,8 @@ import gc
 import unicodedata
 from ..Stage2_Temporal_Reasoning_Distillation.load_smaller_LLM import _load_smaller_LLM
 from ..Stage2_Temporal_Reasoning_Distillation.Offline_Knowledge_Distillation import look_model
+from ..utils import GradientSafeMemoryCleanCallback, ValidationCallback
+import logging
 
 current_time = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")  
 
@@ -158,25 +160,25 @@ def _CRM_reward(args, interaction_history, candidate_item_set, actual_next_item,
     if is_positive_integer(str(prediction_next_item)):
         if int(prediction_next_item)-1 < len(can_ids) and int(prediction_next_item)-1 >= 0:
             rec_pos_in_can = prediction_next_item - 1
-            sharpen_prob_reward, _, _, _, _ = SASRec_rew(
+            SR_Logits, _, _, _, _ = Trained_CRM(
                 llist=his_ids, 
                 candi_sas=can_ids,
                 label=label_id,state_dict_path=args.trained_CRM_path)
-            r_CRM = float(sharpen_prob_reward[rec_pos_in_can])
+            r_CRM = float(SR_Logits[rec_pos_in_can])
         else:
             r_CRM = -0.5
     else:
         r_CRM = -1.0
     
-    return r_CRM, sharpen_prob_reward
+    return r_CRM, SR_Logits
 def _label_reward(prediction_next_item, actual_next_item):
     r_label = 1.0 if type(prediction_next_item) == int and prediction_next_item == actual_next_item else 0.0
     return r_label
-def _reasoning_reward(args, output_temporal_reasoning, interaction_history, candidate_item_set, actual_next_item, prediction_next_item):
+def _reasoning_reward(args, output_temporal_reasoning, interaction_history, candidate_item_set, actual_next_item, prediction_next_item, SR_Logits):
     try:
         if output_temporal_reasoning != 'None':
             r_reasoning, _ = __extract_rating_score(
-                Scoring_LLM(interaction_history, candidate_item_set, actual_next_item, output_temporal_reasoning, prediction_next_item)
+                Scoring_LLM(args, interaction_history, candidate_item_set, actual_next_item, output_temporal_reasoning, prediction_next_item, SR_Logits)
             )
         else:
             r_reasoning = -args.scaling_K
@@ -186,6 +188,12 @@ def _reasoning_reward(args, output_temporal_reasoning, interaction_history, cand
     except Exception as e:
         print(f"Score extraction error: {e}")
         return float('nan')
+
+def _curriculum_learning(args, current_step):
+    if current_step < args.warm_up_stage:
+        return 0.4, 0.4, 0.2
+    else:
+        return 0.2, 0.2, 0.6
 
 def _process_single_sample(args, prompt, completion,prompt_to_references,current_step):
     
@@ -214,37 +222,20 @@ def _process_single_sample(args, prompt, completion,prompt_to_references,current
     r_label = _label_reward(prediction_next_item, actual_next_item)
 
     # 3. R_reasoning
-    r_reasoning = _reasoning_reward(args, output_temporal_reasoning, interaction_history, candidate_item_set, actual_next_item, prediction_next_item)
+    r_reasoning = _reasoning_reward(args, output_temporal_reasoning, interaction_history, candidate_item_set, actual_next_item, prediction_next_item, SR_Logits)
     
-    #2025-11-4 接下来，写curriculum learning 权重， 然后两个函数 deepseek_inf， SASRec_rew
-
-    if current_step < 1500:
-        # 前100步使用原始权重
-        w_label = 0.3
-        w_reasoning = 0.4
-        w_recmodel = 0.3
-
-    elif current_step < 2500:
-        w_label = 0.25
-        w_reasoning = 0.45
-        w_recmodel = 0.3
-    else:
-        # 100步后使用新权重
-        w_label = 0.2
-        w_reasoning = 0.5
-        w_recmodel = 0.3
+    alpha, beta, gamma = _curriculum_learning(args,current_step)
     
-    # 总奖励计算使用动态权重
-    total_reward = w_label * r_label + w_reasoning * r_reasoning + w_recmodel * r_CRM
+    sum_reward =  alpha * r_reasoning + beta * r_CRM + gamma * r_label
     
     debug_text = (
         f"Prompt: {prompt}\n"
         f"Completion: {completion}\n"
-        f"生成推理: {reasoning_text}\n"
-        f"r_label: {r_label:.2f}, r_reasoning: {r_reasoning:.2f}, r_CRM: {r_CRM:.2f}, 总奖励: {total_reward:.2f}"
+        f"Reasoning: {output_temporal_reasoning}\n"
+        f"r_label: {r_label:.2f}, r_reasoning: {r_reasoning:.2f}, r_CRM: {r_CRM:.2f}, sum reward: {sum_reward:.2f}"
     )
     
-    return total_reward, debug_text
+    return sum_reward, debug_text
 
 def _elaborate_reward_module(args, prompts, completions,  prompt_to_references):
 
@@ -315,11 +306,110 @@ def _elaborate_reward_module(args, prompts, completions,  prompt_to_references):
     return rewards
 
 
+
+def prepare_rl_data(examples):
+    
+    prompts = []
+    for messages in examples['messages']:
+        user_message = next((msg['content'] for msg in messages if msg['role'] == 'user'), "")
+        message = f"User: {user_message}\nAssistant: "
+        prompts.append(message)
+        
+    return {"prompt": prompts}
+
 def reinforcement_learning_enhancement(args, distilled_smaller_scale_llm_path, train_dataset, eval_dataset, prompt_to_reference, eval_input_prompts_for_ref):
     
     distilled_smaller_llm, tokenizer = _load_distilled_smaller_scale_llm(args, distilled_smaller_scale_llm_path)
 
+    train_dataset = train_dataset.map(
+        prepare_rl_data,
+        batched=True,
+        remove_columns=train_dataset.column_names
+    )
+    text_dataset = text_dataset.map(
+        prepare_rl_data,
+        batched=True,
+        remove_columns=text_dataset.column_names
+    )
+    eval_texts = eval_dataset.map(
+        prepare_rl_data,
+        batched=True,
+        remove_columns=eval_dataset.column_names
+    )
+
+    generation_kwargs = {
+        "max_tokens": args.output_token_max_length,      
+        "temperature": args.smaller_llm_temperature_rl,
+        "top_p": args.top_p_rl, 
+        }
+
+    grpo_config = GRPOConfig(
+        learning_rate=args.rl_learning_rate,
+        per_device_train_batch_size=args.rl_per_device_train_batch_size,
+        gradient_accumulation_steps=args.rl_gradient_accumulation_steps,
+        num_train_epochs=1,
+        output_dir=args.rl_smaller_llm_out_path,
+        logging_steps=args.rl_logging_steps,
+        ds3_gather_for_generation=args.ds3_gather_for_generation,
+        seed=42,
+        gradient_checkpointing=args.gradient_checkpointing,
+        num_generations=args.num_generations,
+        beta=args.kl_weight,
+        epsilon=args.cliprange,
+        max_prompt_length=args.prompt_max_length,
+        max_completion_length=args.output_token_max_length,
+        remove_unused_columns=args.remove_unused_columns,
+        #fp16=True,
+        bf16 = args.use_bf16,
+        optim=args.rl_optim,
+        use_vllm=args.use_vllm,
+        vllm_mode=args.vllm_mode,
+        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
+        vllm_tensor_parallel_size=args.vllm_tensor_parallel_size,
+        weight_decay=args.rl_weight_decay,
+        save_total_limit=args.save_total_limit,
+        ddp_find_unused_parameters=args.ddp_find_unused_parameters,
+        generation_kwargs=generation_kwargs,
+        #dataloader_num_workers=0,
+        group_by_length=args.group_by_length,
+        logging_dir=f"{args.rl_smaller_llm_out_path}/logs",
+        save_strategy=args.rl_save_strategy,
+    )
+    
+    RL_trainer = GRPOTrainer(
+        model=distilled_smaller_llm,
+        reward_funcs=_elaborate_reward_module, 
+        args=grpo_config,
+        train_dataset=train_dataset,
+        processing_class=tokenizer, 
+        reward_processing_classes=None,
+    )
+
+    validation_callback = ValidationCallback(
+        args=args,
+        trainer=RL_trainer,
+        model=distilled_smaller_llm,
+        tokenizer=tokenizer,
+        eval_dataset=eval_dataset,  
+        eval_prompts=eval_input_prompts_for_ref,  
+    )
+
+    clean_callback = GradientSafeMemoryCleanCallback(
+        gradient_accumulation_steps=args)
+    
+    RL_trainer.add_callback(validation_callback)
+    RL_trainer.add_callback(clean_callback)
+
+    look_model(distilled_smaller_llm)
+    logging.basicConfig(level=logging.INFO)
+    distilled_smaller_llm.train()
+    RL_trainer.train()
+
+    os.makedirs(args.rl_smaller_llm_out_path, exist_ok=True)
+    RL_trainer.save_model(args.rl_smaller_llm_out_path)
+    tokenizer.save_pretrained(args.rl_smaller_llm_out_path)
+
+    print(f"The RL trained smaller-scale LLM has been saved to {args.rl_smaller_llm_out_path}")
 
     
-    
-    return
+    return args.rl_smaller_llm_out_path
