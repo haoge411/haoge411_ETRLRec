@@ -6,8 +6,9 @@ Researchers have tried to take temporal knowledge into consideration with LLMs f
 
 To address aforementioned issues, we propose a novel framework, Enhancing Temporal Reasoning by Reinforcement Learning for LLM-based Sequential Recommendation (ETRLRec). ETRLRec first utilizes temporal knowledge to guide LLM in constructing temporal reasoning, and then it distills the constructed temporal reasoning to a smaller and more cost-effective LLM. These two stages enable LLM to acquire temporal reasoning ability, allowing it to analyze and solve SR tasks in a temporal dynamic pattern. In addition, to address issues of SFT and overly simplistic RL reward module, ETRLRec proposes a novel RL-based training method with an elaborate reward module to further improve SR performance. Extensive experiments on three real datasets validate ETRLRec's effectiveness.
 
-## Rough View
-![delrec_rough](https://github.com/user-attachments/assets/b61bf4fd-9775-4bd5-9e64-b23829873450)
+## Illustration
+![ETRLrec_rough]<img width="985" height="311" alt="ETRLRec_overview" src="https://github.com/user-attachments/assets/4208d85f-e3ce-41c6-a0db-0da2dc3c5e30" />
+
 
 ## Paper
 DELRec: Distilling Sequential Pattern to Enhance LLMs-based Sequential Recommendation ([DELRec.pdf](https://github.com/user-attachments/files/17808804/DELRec.pdf))
