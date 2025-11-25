@@ -68,7 +68,7 @@ def _concatenate_three_dimensions():
     three_dimensions = f"\n\n{Interaction_Sequentiality}\n\n{Item_Attribute_Transition}\n\n{User_Evolving_Thought}"
     return three_dimensions
 
-def construct_guidance_prompt(args): #写批量的形式，传入文件，以Sports & outdoors为例
+def construct_guidance_prompt(args): 
     
     three_dimensions = _concatenate_three_dimensions()
     
@@ -116,4 +116,5 @@ def construct_guidance_prompt(args): #写批量的形式，传入文件，以Spo
     guidance_prompt_out_path = args.guidance_prompt_out_path
     print(f"Successfully constructed guidance prompt! Saved in {guidance_prompt_out_path}")    
     return guidance_prompt_out_path
+
 
